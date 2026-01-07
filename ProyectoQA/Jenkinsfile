@@ -4,7 +4,7 @@ pipeline {
     environment {
         // URLs de los repositorios (configurar en Jenkins)
         BACKEND_REPO_URL = 'https://github.com/sebaveaa/stock-simulator-springQA'
-        FRONTEND_REPO_URL = 'https://github.com/sebaveaa/stock-simulator-angularQA'
+        FRONTEND_REPO_URL = 'https://github.com/Brillem/stock-simulator-angular'
         
         // Configuración de base de datos para pruebas
         DB_HOST = 'postgres-test'
