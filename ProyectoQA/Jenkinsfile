@@ -1,0 +1,188 @@
+pipeline {
+    agent any
+    
+    environment {
+        // URLs de los repositorios (configurar en Jenkins)
+        BACKEND_REPO_URL = 'https://github.com/sebaveaa/stock-simulator-springQA'
+        FRONTEND_REPO_URL = 'https://github.com/sebaveaa/stock-simulator-angularQA'
+        
+        // Configuración de base de datos para pruebas
+        DB_HOST = 'postgres-test'
+        DB_PORT = '5432'
+        DB_NAME = 'postgres'
+        DB_USERNAME = 'postgres'
+        DB_PASSWORD = 'postgres'
+        
+        // Configuración del backend
+        SERVER_PORT = '8080'
+        JPA_DDL_AUTO = 'create-drop'
+        JPA_SHOW_SQL = 'false'
+        
+        // Directorios de trabajo
+        BACKEND_DIR = 'backend'
+        FRONTEND_DIR = 'frontend'
+        REPORTS_DIR = 'test-reports'
+    }
+    
+    stages {
+        stage('Checkout Repositorios') {
+            steps {
+                script {
+                    echo 'Clonando repositorios backend y frontend...'
+                    
+                    // Clonar backend
+                    dir("${BACKEND_DIR}") {
+                        git branch: 'main', 
+                            url: "${BACKEND_REPO_URL}",
+                            credentialsId: 'github-credentials' // Configurar en Jenkins si el repo es privado
+                    }
+                    
+                    // Clonar frontend
+                    dir("${FRONTEND_DIR}") {
+                        git branch: 'main', 
+                            url: "${FRONTEND_REPO_URL}",
+                            credentialsId: 'github-credentials' // Configurar en Jenkins si el repo es privado
+                    }
+                }
+            }
+        }
+        
+        stage('Preparar Entorno') {
+            steps {
+                script {
+                    echo 'Preparando entorno de pruebas...'
+                    sh '''
+                        mkdir -p ${REPORTS_DIR}
+                        mkdir -p ${REPORTS_DIR}/backend
+                        mkdir -p ${REPORTS_DIR}/frontend
+                    '''
+                }
+            }
+        }
+        
+        stage('Iniciar PostgreSQL') {
+            steps {
+                script {
+                    echo 'Iniciando PostgreSQL para pruebas...'
+                    sh '''
+                        # Iniciar PostgreSQL para pruebas
+                        docker-compose -f docker-compose.jenkins.yml up -d postgres-test || true
+                        
+                        # Esperar a que PostgreSQL esté listo
+                        echo "Esperando a que PostgreSQL esté listo..."
+                        sleep 15
+                        
+                        # Verificar que PostgreSQL está corriendo
+                        docker ps | grep postgres-test || echo "PostgreSQL no está corriendo"
+                    '''
+                }
+            }
+        }
+        
+        stage('Pruebas Backend') {
+            steps {
+                script {
+                    echo 'Ejecutando pruebas del backend...'
+                    dir("${BACKEND_DIR}") {
+                        try {
+                            sh '''
+                                mvn clean test \
+                                    -Dspring.datasource.url=jdbc:postgresql://postgres-test:5432/postgres \
+                                    -Dspring.datasource.username=postgres \
+                                    -Dspring.datasource.password=postgres \
+                                    -Dspring.jpa.hibernate.ddl-auto=create-drop \
+                                    -Dspring.jpa.show-sql=false
+                            '''
+                        } catch (Exception e) {
+                            echo "Error en pruebas backend: ${e.getMessage()}"
+                            currentBuild.result = 'UNSTABLE'
+                        } finally {
+                            // Generar reporte CSV de pruebas backend
+                            sh '''
+                                mvn surefire-report:report || true
+                                python3 ../jenkins/scripts/generate_backend_report.py || python ../jenkins/scripts/generate_backend_report.py || echo "No se pudo generar reporte CSV del backend"
+                            '''
+                            // Copiar reportes
+                            sh '''
+                                cp -r target/surefire-reports/* ../${REPORTS_DIR}/backend/ 2>/dev/null || true
+                                cp target/surefire-reports/*.csv ../${REPORTS_DIR}/backend/ 2>/dev/null || true
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Pruebas Frontend') {
+            steps {
+                script {
+                    echo 'Ejecutando pruebas del frontend...'
+                    dir("${FRONTEND_DIR}") {
+                        try {
+                            sh '''
+                                npm install
+                                npm test -- --watch=false --browsers=ChromeHeadless --code-coverage --reporters=progress,junit
+                            '''
+                        } catch (Exception e) {
+                            echo "Error en pruebas frontend: ${e.getMessage()}"
+                            currentBuild.result = 'UNSTABLE'
+                        } finally {
+                            // Generar reporte CSV de pruebas frontend
+                            sh '''
+                                python3 ../jenkins/scripts/generate_frontend_report.py || python ../jenkins/scripts/generate_frontend_report.py || echo "No se pudo generar reporte CSV del frontend"
+                            '''
+                            // Copiar reportes
+                            sh '''
+                                cp -r coverage/* ../${REPORTS_DIR}/frontend/ 2>/dev/null || true
+                                cp *.csv ../${REPORTS_DIR}/frontend/ 2>/dev/null || true
+                                find . -name "*.csv" -exec cp {} ../${REPORTS_DIR}/frontend/ \\; 2>/dev/null || true
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Generar Reporte Consolidado') {
+            steps {
+                script {
+                    echo 'Generando reporte consolidado CSV...'
+                    sh '''
+                        python3 jenkins/scripts/generate_consolidated_report.py || python jenkins/scripts/generate_consolidated_report.py || echo "No se pudo generar reporte consolidado"
+                    '''
+                }
+            }
+        }
+        
+        stage('Limpiar') {
+            steps {
+                script {
+                    echo 'Limpiando contenedores de prueba...'
+                    sh '''
+                        # Detener PostgreSQL de pruebas
+                        docker-compose -f docker-compose.jenkins.yml stop postgres-test || true
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            script {
+                echo 'Publicando reportes...'
+                archiveArtifacts artifacts: 'test-reports/**/*', allowEmptyArchive: true
+                publishTestResults testResultsPattern: 'test-reports/**/*.xml', allowEmptyResults: true
+            }
+        }
+        success {
+            echo 'Pipeline ejecutado exitosamente'
+        }
+        failure {
+            echo 'Pipeline falló'
+        }
+        unstable {
+            echo 'Pipeline completado con advertencias'
+        }
+    }
+}

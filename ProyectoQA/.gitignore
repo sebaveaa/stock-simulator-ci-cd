@@ -1,0 +1,33 @@
+# Test reports
+test-reports/
+*.csv
+stock-simulator-spring/
+stock-simulator-angular/
+# Jenkins
+jenkins_home/
+
+# Node modules
+node_modules/
+
+# Build outputs
+dist/
+target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment variables
+.env
+.env.local
+

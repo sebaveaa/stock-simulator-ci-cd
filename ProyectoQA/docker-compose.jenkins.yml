@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # Jenkins Server
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: jenkins-server
+    user: root
+    ports:
+      - "8081:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./jenkins/scripts:/var/jenkins_home/scripts
+      - ./:/workspace
+    environment:
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
+    networks:
+      - jenkins-network
+    restart: unless-stopped
+    # Permite que Jenkins ejecute comandos Docker
+    privileged: true
+
+  # PostgreSQL para pruebas de Jenkins
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: jenkins-postgres-test
+    environment:
+      POSTGRES_DB: ${DB_NAME:-postgres}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jenkins-network
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:
+    driver: local
+  postgres_test_data:
+    driver: local
+
+networks:
+  jenkins-network:
+    driver: bridge
+
