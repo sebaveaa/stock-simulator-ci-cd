@@ -238,7 +238,7 @@ pipeline {
             script {
                 echo 'Publicando reportes...'
                 archiveArtifacts artifacts: 'test-reports/**/*', allowEmptyArchive: true
-                publishTestResults testResultsPattern: 'test-reports/**/*.xml', allowEmptyResults: true
+                junit testResultsPattern: 'test-reports/**/*.xml', allowEmptyResults: true
             }
         }
         success {
