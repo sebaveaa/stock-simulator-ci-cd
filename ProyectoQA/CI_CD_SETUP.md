@@ -25,12 +25,6 @@ Esta guía explica cómo:
 
 ## 🎯 Respuesta a tus Preguntas
 
-### ¿El proyecto se conecta a Supabase?
-
-**No**, el proyecto se conecta a **PostgreSQL local** en Docker. La configuración está en:
-
-- `docker-compose.yml` - Define el servicio PostgreSQL
-- `stock-simulator-spring/src/main/resources/application.properties` - Configuración de conexión
 
 El proyecto usa variables de entorno que se pueden sobrescribir, pero por defecto usa PostgreSQL local.
 

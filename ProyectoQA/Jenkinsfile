@@ -65,15 +65,57 @@ pipeline {
                 script {
                     echo 'Iniciando PostgreSQL para pruebas...'
                     sh '''
-                        # Iniciar PostgreSQL para pruebas
-                        docker-compose -f docker-compose.jenkins.yml up -d postgres-test || true
+                        # Verificar si postgres-test ya está corriendo
+                        if docker ps | grep -q postgres-test; then
+                            echo "PostgreSQL para pruebas ya está corriendo"
+                        else
+                            # Intentar usar docker-compose o docker compose
+                            COMPOSE_FILE="docker-compose.jenkins.yml"
+                            
+                            # Verificar si el archivo existe en el directorio actual
+                            if [ ! -f "$COMPOSE_FILE" ]; then
+                                # Buscar en el directorio padre o en /workspace
+                                if [ -f "../$COMPOSE_FILE" ]; then
+                                    COMPOSE_FILE="../$COMPOSE_FILE"
+                                elif [ -f "/workspace/ProyectoQA/$COMPOSE_FILE" ]; then
+                                    COMPOSE_FILE="/workspace/ProyectoQA/$COMPOSE_FILE"
+                                fi
+                            fi
+                            
+                            echo "Usando archivo: $COMPOSE_FILE"
+                            
+                            # Intentar iniciar con docker compose (v2) o docker-compose (v1)
+                            if command -v docker-compose >/dev/null 2>&1; then
+                                docker-compose -f "$COMPOSE_FILE" up -d postgres-test || true
+                            elif docker compose version >/dev/null 2>&1; then
+                                docker compose -f "$COMPOSE_FILE" up -d postgres-test || true
+                            else
+                                # Si no hay docker-compose, iniciar el contenedor directamente
+                                echo "docker-compose no disponible, iniciando contenedor directamente..."
+                                docker run -d \
+                                    --name jenkins-postgres-test \
+                                    --network jenkins-network \
+                                    -e POSTGRES_DB=postgres \
+                                    -e POSTGRES_USER=postgres \
+                                    -e POSTGRES_PASSWORD=postgres \
+                                    -p 5433:5432 \
+                                    postgres:15-alpine || \
+                                echo "No se pudo iniciar PostgreSQL - puede que ya esté corriendo o falten permisos"
+                            fi
+                        fi
                         
                         # Esperar a que PostgreSQL esté listo
                         echo "Esperando a que PostgreSQL esté listo..."
-                        sleep 15
+                        for i in {1..30}; do
+                            if docker exec jenkins-postgres-test pg_isready -U postgres >/dev/null 2>&1 2>/dev/null; then
+                                echo "PostgreSQL está listo"
+                                break
+                            fi
+                            sleep 1
+                        done
                         
                         # Verificar que PostgreSQL está corriendo
-                        docker ps | grep postgres-test || echo "PostgreSQL no está corriendo"
+                        docker ps | grep postgres-test || echo "Advertencia: PostgreSQL no está corriendo como contenedor"
                     '''
                 }
             }
@@ -160,7 +202,31 @@ pipeline {
                     echo 'Limpiando contenedores de prueba...'
                     sh '''
                         # Detener PostgreSQL de pruebas
-                        docker-compose -f docker-compose.jenkins.yml stop postgres-test || true
+                        if docker ps | grep -q postgres-test; then
+                            COMPOSE_FILE="docker-compose.jenkins.yml"
+                            
+                            # Verificar si el archivo existe en el directorio actual
+                            if [ ! -f "$COMPOSE_FILE" ]; then
+                                if [ -f "../$COMPOSE_FILE" ]; then
+                                    COMPOSE_FILE="../$COMPOSE_FILE"
+                                elif [ -f "/workspace/ProyectoQA/$COMPOSE_FILE" ]; then
+                                    COMPOSE_FILE="/workspace/ProyectoQA/$COMPOSE_FILE"
+                                fi
+                            fi
+                            
+                            # Intentar detener con docker-compose
+                            if command -v docker-compose >/dev/null 2>&1; then
+                                docker-compose -f "$COMPOSE_FILE" stop postgres-test 2>/dev/null || true
+                            elif docker compose version >/dev/null 2>&1; then
+                                docker compose -f "$COMPOSE_FILE" stop postgres-test 2>/dev/null || true
+                            fi
+                            
+                            # Detener el contenedor directamente si todavía está corriendo
+                            docker stop jenkins-postgres-test 2>/dev/null || true
+                            echo "PostgreSQL de pruebas detenido"
+                        else
+                            echo "PostgreSQL de pruebas no estaba corriendo"
+                        fi
                     '''
                 }
             }
