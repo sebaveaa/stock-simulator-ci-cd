@@ -185,6 +185,85 @@ pipeline {
             }
         }
         
+        stage('Iniciar Backend para Pruebas de Carga') {
+            when {
+                anyOf {
+                    environment name: 'RUN_LOAD_TESTS', value: 'true'
+                    branch 'main'
+                }
+            }
+            steps {
+                script {
+                    echo 'Iniciando backend para pruebas de carga...'
+                    sh '''
+                        # Verificar si backend ya está corriendo
+                        if curl -f http://localhost:8080/actuator/health 2>/dev/null; then
+                            echo "Backend ya está corriendo"
+                        else
+                            echo "Iniciando backend con docker-compose..."
+                            # Usar docker-compose principal o iniciar contenedor backend
+                            if [ -f "../docker-compose.yml" ]; then
+                                cd ..
+                                docker-compose up -d backend postgres 2>/dev/null || docker compose up -d backend postgres 2>/dev/null || echo "No se pudo iniciar con docker-compose"
+                            elif [ -f "docker-compose.yml" ]; then
+                                docker-compose up -d backend postgres 2>/dev/null || docker compose up -d backend postgres 2>/dev/null || echo "No se pudo iniciar con docker-compose"
+                            fi
+                            
+                            # Esperar a que el backend esté listo
+                            echo "Esperando a que el backend esté listo..."
+                            for i in {1..60}; do
+                                if curl -f http://localhost:8080/actuator/health 2>/dev/null; then
+                                    echo "Backend está listo"
+                                    break
+                                fi
+                                sleep 2
+                            done
+                        fi
+                    '''
+                }
+            }
+        }
+        
+        stage('Pruebas de Carga') {
+            when {
+                anyOf {
+                    environment name: 'RUN_LOAD_TESTS', value: 'true'
+                    branch 'main'
+                }
+            }
+            steps {
+                script {
+                    dir('jenkins') {
+                        sh '''
+                            # Verificar que el backend esté disponible
+                            if ! curl -f http://localhost:8080/actuator/health 2>/dev/null; then
+                                echo "Error: Backend no está disponible para pruebas de carga"
+                                exit 1
+                            fi
+                            
+                            # Ejecutar pruebas de carga
+                            ./scripts/run_load_tests.sh --scenario normal --backend-url http://localhost:8080 || echo "Pruebas de carga fallaron"
+                        '''
+                    }
+                }
+            }
+            post {
+                always {
+                    script {
+                        echo 'Publicando reportes de pruebas de carga...'
+                        archiveArtifacts artifacts: 'jenkins/load-tests/load-test-reports/**/*', allowEmptyArchive: true
+                        // Publicar reporte HTML (requiere plugin HTML Publisher)
+                        // publishHTML([
+                        //     reportDir: 'jenkins/load-tests/load-test-reports',
+                        //     reportFiles: '**/index.html',
+                        //     reportName: 'Load Test Report',
+                        //     allowMissing: true
+                        // ])
+                    }
+                }
+            }
+        }
+        
         stage('Generar Reporte Consolidado') {
             steps {
                 script {

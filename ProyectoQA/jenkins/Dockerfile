@@ -37,6 +37,18 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     ln -s /usr/bin/python3 /usr/bin/python
 
+# Instalar JMeter
+RUN apt-get update && \
+    apt-get install -y wget unzip && \
+    cd /opt && \
+    wget https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz && \
+    tar -xzf apache-jmeter-5.6.3.tgz && \
+    rm apache-jmeter-5.6.3.tgz && \
+    ln -s /opt/apache-jmeter-5.6.3 /opt/jmeter && \
+    ln -s /opt/jmeter/bin/jmeter /usr/local/bin/jmeter && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Volver al usuario jenkins
 USER jenkins
 

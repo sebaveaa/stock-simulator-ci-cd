@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # Base de datos PostgreSQL para pruebas de carga
+  postgres:
+    image: postgres:15-alpine
+    container_name: load-test-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-postgres}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_load_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - load-test-network
+    restart: unless-stopped
+
+  # Aplicación Spring Boot (Backend) para pruebas de carga
+  backend:
+    build:
+      context: ../../stock-simulator-spring
+      dockerfile: Dockerfile
+    container_name: load-test-backend
+    environment:
+      # Configuración de base de datos
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-postgres}
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      
+      # Configuración del servidor
+      SERVER_PORT: 8080
+      
+      # Configuración JPA
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      JPA_SHOW_SQL: ${JPA_SHOW_SQL:-false}
+      
+      # Configuración de email (puede ser mock para pruebas)
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-true}
+      MAIL_SMTP_SSL_TRUST: ${MAIL_SMTP_SSL_TRUST:-*}
+      
+      # Configuración CORS
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - load-test-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 10
+
+  # JMeter en contenedor (opcional, si no está instalado localmente)
+  jmeter:
+    image: justb4/jmeter:latest
+    container_name: load-test-jmeter
+    networks:
+      - load-test-network
+    volumes:
+      - ../load-tests:/tests
+      - ../scripts:/scripts
+    working_dir: /tests
+    command: /bin/bash
+    stdin_open: true
+    tty: true
+    profiles:
+      - jmeter-container  # Solo se inicia si se especifica: docker-compose --profile jmeter-container up
+
+volumes:
+  postgres_load_test_data:
+    driver: local
+
+networks:
+  load-test-network:
+    driver: bridge
+
